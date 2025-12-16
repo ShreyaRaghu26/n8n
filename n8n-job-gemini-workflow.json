@@ -1,0 +1,213 @@
+{
+  "name": "Jobs Filter with Gemini (Manual → Function → HTTP → Function → IF → Set)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ManualTriggerGemini",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [\n  { json: { title: 'Software Engineer', company: 'Acme Corp', location: 'Remote' } },\n  { json: { title: 'Data Analyst', company: 'Beta Inc', location: 'Remote' } },\n  { json: { title: 'QA Engineer', company: 'QualityWorks', location: 'Hybrid' } },\n  { json: { title: 'Project Manager', company: 'Gamma LLC', location: 'Onsite' } }\n];"
+      },
+      "id": "FunctionStaticJobsG",
+      "name": "Create Static Jobs",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const jobs = items.map(i => i.json);\nconst prompt = `You are a helpful assistant. From the following JSON array of job postings, return ONLY the jobs whose title contains the word \\\"Engineer\\\" (case-insensitive). Return a compact JSON array with objects having exactly these keys: title, company. Do not include any explanation, only valid JSON.\\n\\nJobs: ${JSON.stringify(jobs)}`;\nreturn [{ json: { prompt } }];"
+      },
+      "id": "FunctionBuildPrompt",
+      "name": "Build Gemini Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "sendQuery": true,
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "key",
+              "value": "={{$env.GEMINI_API_KEY}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "contents",
+              "value": "={{ [{ role: 'user', parts: [{ text: $json[\"prompt\"] }] }] }}"
+            }
+          ]
+        }
+      },
+      "id": "HttpGemini",
+      "name": "Call Gemini (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        180,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "function safeParse(text) {\n  try { return JSON.parse(text); } catch { return []; }\n}\n// Gemini response shape: candidates[0].content.parts[0].text\nconst text = items[0]?.json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';\nconst results = safeParse(text);\nif (!Array.isArray(results)) return [];\nreturn results.map(r => ({ json: { title: r.title, company: r.company } }));"
+      },
+      "id": "FunctionParseGemini",
+      "name": "Parse Gemini JSON",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"title\"]}}",
+              "operation": "contains",
+              "value2": "Engineer"
+            }
+          ]
+        }
+      },
+      "id": "IfEngineerGuard",
+      "name": "IF: Title has \"Engineer\"",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        700,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "jobTitle",
+              "value": "={{$json[\"title\"]}}"
+            },
+            {
+              "name": "company",
+              "value": "={{$json[\"company\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "SetFinal",
+      "name": "Set Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        960,
+        140
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create Static Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Static Jobs": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini JSON": {
+      "main": [
+        [
+          {
+            "node": "IF: Title has \"Engineer\"",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Title has \"Engineer\"": {
+      "main": [
+        [
+          {
+            "node": "Set Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "version": 1,
+  "meta": {
+    "templateCredsSetup": []
+  },
+  "id": "n8n-job-gemini"
+}
